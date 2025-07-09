@@ -1,0 +1,162 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+import os
+
+class TitanicSurvivalPredictor:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Titanic Survival Predictor")
+        self.root.geometry("500x600")
+        self.root.configure(bg="#e3f2fd")  # Light blue background
+
+        # Load and train model
+        self.model, self.scaler = self.train_model()
+
+        # Configure style
+        self.style = ttk.Style()
+        self.style.configure("TButton", font=("Arial", 12, "bold"), padding=10)
+        self.style.configure("TLabel", font=("Arial", 12), background="#e3f2fd")
+        self.style.configure("TEntry", font=("Arial", 12))
+        self.style.map("TButton", 
+                      background=[('active', '#0288d1')],  # Blue on click
+                      foreground=[('active', '#ffffff')])
+
+        # GUI Components
+        self.create_gui()
+
+    def train_model(self):
+        """Load dataset and train Random Forest model."""
+        try:
+            # Load dataset
+            if not os.path.exists("titanic.csv"):
+                messagebox.showerror("Error", "titanic.csv not found in the directory!")
+                return None, None
+            df = pd.read_csv("titanic.csv")
+
+            # Select features and target
+            features = ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare']
+            X = df[features]
+            y = df['Survived']
+
+            # Preprocess data
+            X.loc[:, 'Sex'] = X['Sex'].map({'male': 0, 'female': 1})  # Encode Sex
+            X.loc[:, 'Age'] = X['Age'].fillna(X['Age'].median())  # Fill missing Age with median
+            X.loc[:, 'Fare'] = X['Fare'].fillna(X['Fare'].median())  # Fill missing Fare with median
+
+            # Split data
+            X_train, _, y_train, _ = train_test_split(X, y, test_size=0.2, random_state=42)
+
+            # Scale numerical features
+            scaler = StandardScaler()
+            X_train[['Age', 'Fare']] = scaler.fit_transform(X_train[['Age', 'Fare']])
+
+            # Train Random Forest model
+            model = RandomForestClassifier(n_estimators=100, random_state=42)
+            model.fit(X_train, y_train)
+
+            return model, scaler
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load/train model: {str(e)}")
+            return None, None
+
+    def create_gui(self):
+        """Create the styled GUI components."""
+        if self.model is None or self.scaler is None:
+            return
+
+        main_frame = tk.Frame(self.root, bg="#e3f2fd", padx=20, pady=20)
+        main_frame.pack(expand=True, fill="both")
+
+        # Title
+        tk.Label(main_frame, text="Titanic Survival Predictor", font=("Arial", 18, "bold"), 
+                bg="#e3f2fd", fg="#01579b").pack(pady=10)
+
+        # Input fields
+        input_frame = tk.Frame(main_frame, bg="#e3f2fd")
+        input_frame.pack(fill="x", pady=10)
+
+        fields = [
+            ("Passenger Class (1, 2, 3)", "pclass_entry"),
+            ("Sex (male/female)", "sex_entry"),
+            ("Age", "age_entry"),
+            ("Siblings/Spouses Aboard", "sibsp_entry"),
+            ("Parents/Children Aboard", "parch_entry"),
+            ("Fare", "fare_entry")
+        ]
+        for label, attr in fields:
+            ttk.Label(input_frame, text=label).pack(anchor="w")
+            setattr(self, attr, ttk.Entry(input_frame, width=20))
+            getattr(self, attr).pack(pady=2)
+
+        # Predict button
+        ttk.Button(main_frame, text="Predict Survival", command=self.predict, 
+                  style="TButton").pack(pady=10)
+
+        # Result display
+        self.result_var = tk.StringVar(value="Enter details and click Predict")
+        result_label = tk.Label(main_frame, textvariable=self.result_var, 
+                              font=("Arial", 12, "bold"), bg="#e3f2fd", fg="#d32f2f", wraplength=400)
+        result_label.pack(pady=10)
+
+        # Clear button
+        ttk.Button(main_frame, text="Clear", command=self.clear_entries, 
+                  style="TButton").pack(pady=5)
+
+    def predict(self):
+        """Predict survival based on user input."""
+        try:
+            pclass = int(self.pclass_entry.get())
+            if pclass not in [1, 2, 3]:
+                raise ValueError("Passenger Class must be 1, 2, or 3")
+            sex = self.sex_entry.get().strip().lower()
+            if sex not in ['male', 'female']:
+                raise ValueError("Sex must be 'male' or 'female'")
+            age = float(self.age_entry.get())
+            if age < 0 or age > 120:
+                raise ValueError("Age must be between 0 and 120")
+            sibsp = int(self.sibsp_entry.get())
+            if sibsp < 0:
+                raise ValueError("Siblings/Spouses cannot be negative")
+            parch = int(self.parch_entry.get())
+            if parch < 0:
+                raise ValueError("Parents/Children cannot be negative")
+            fare = float(self.fare_entry.get())
+            if fare < 0:
+                raise ValueError("Fare cannot be negative")
+
+            # Prepare input data
+            input_data = pd.DataFrame({
+                'Pclass': [pclass],
+                'Sex': [1 if sex == 'female' else 0],
+                'Age': [age],
+                'SibSp': [sibsp],
+                'Parch': [parch],
+                'Fare': [fare]
+            })
+            input_data[['Age', 'Fare']] = self.scaler.transform(input_data[['Age', 'Fare']])
+
+            # Predict
+            prediction = self.model.predict(input_data)[0]
+            probability = self.model.predict_proba(input_data)[0][1] * 100
+            result = "Survived" if prediction == 1 else "Not Survived"
+            self.result_var.set(f"Prediction: {result}\nSurvival Probability: {probability:.2f}%")
+        except ValueError as e:
+            messagebox.showerror("Input Error", str(e))
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred: {str(e)}")
+
+    def clear_entries(self):
+        """Clear all input fields."""
+        for attr in ['pclass_entry', 'sex_entry', 'age_entry', 'sibsp_entry', 'parch_entry', 'fare_entry']:
+            getattr(self, attr).delete(0, tk.END)
+        self.result_var.set("Enter details and click Predict")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = TitanicSurvivalPredictor(root)
+    root.mainloop()
